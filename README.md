@@ -170,7 +170,7 @@ The bot displays comprehensive color-coded status during position holding (every
 Close all open positions on both exchanges:
 
 ```bash
-# Interactive mode - shows positions and asks confirmation
+# Interactive mode - shows positions and asks to press Enter to confirm
 python emergency_close.py
 
 # Close specific symbol only
@@ -183,7 +183,7 @@ python emergency_close.py --force
 python emergency_close.py --dry-run
 ```
 
-The script scans symbols from `bot_config.json` and displays all open positions with PnL before closing.
+The script scans symbols from `bot_config.json` and displays all open positions with PnL. In interactive mode, simply press **Enter** to confirm closing (or Ctrl+C to cancel).
 
 ## 🧪 Testing
 

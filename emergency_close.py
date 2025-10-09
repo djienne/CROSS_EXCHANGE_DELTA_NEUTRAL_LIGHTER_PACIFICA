@@ -296,15 +296,7 @@ async def main():
     # Confirmation
     if not args.force and not args.dry_run:
         print(f"{Colors.YELLOW}{Colors.BOLD}WARNING: This will close all positions listed above.{Colors.RESET}")
-        confirm = input(f"Type 'YES' to confirm: ")
-        if confirm != 'YES':
-            print(f"\n{Colors.YELLOW}Operation cancelled.{Colors.RESET}\n")
-            await lighter_api_client.close()
-            try:
-                await lighter_signer.close()
-            except Exception:
-                pass
-            return
+        input(f"Press ENTER to confirm and close positions (or Ctrl+C to cancel): ")
         print()
 
     # Close positions
