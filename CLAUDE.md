@@ -53,11 +53,16 @@ This is a **delta-neutral funding rate arbitrage bot** that automatically captur
 - Uses same closing logic as `emergency_close.py` (tested and verified)
 - Checked during monitoring phase every `check_interval_seconds` (default 60s)
 
-**Symbol Filtering** (lines 557-579)
-- At startup, bot filters `symbols_to_monitor` to only those available on BOTH exchanges
-- Logs removed symbols and exits if no common symbols remain
-- Prevents attempting to trade unsupported pairs
-- Re-applied during config reload (line 633)
+**Symbol Filtering** (lines 785-891)
+- Filters symbols in three stages: exchange availability, volume, and spread
+- **Exchange Availability**: Only symbols available on both Lighter and Pacifica
+- **Volume Filter**: Minimum $50M 24h trading volume on Pacifica (fetches via klines API)
+- **Spread Filter**: Maximum 0.15% absolute spread between exchanges (fetches prices from both exchanges)
+- Applied at startup during market cache initialization
+- Re-applied before each cycle in `start_new_cycle()` to keep symbol list current
+- Logs which symbols pass/fail each filter with detailed metrics
+- Exits if no symbols meet all criteria
+- Includes proper rate limiting (1s for Lighter, 0.1s for Pacifica)
 
 **Quantity Synchronization** (lines 866-875)
 - Uses coarser (larger) step size between both exchanges for quantity rounding
@@ -175,10 +180,39 @@ python emergency_close.py --config custom_config.json
 The `emergency_close.py` script:
 - Scans only symbols listed in `bot_config.json` (not all available symbols)
 - Displays all open positions with side, quantity, and unrealized PnL
-- Requires typing 'YES' to confirm before closing (unless `--force`)
+- Requires pressing Enter to confirm before closing (unless `--force`)
 - Provides colored output for easy readability
 - Reports success/failure for each position closed
 - Supports closing both Lighter and Pacifica positions
+
+### Utility Scripts
+
+```bash
+# Check 24h trading volume for all symbols
+python check_24h_volume.py
+
+# Check mid-price spreads between exchanges
+python check_spreads.py
+
+# Use custom config file
+python check_24h_volume.py --config custom_config.json
+python check_spreads.py --config custom_config.json
+```
+
+**check_24h_volume.py**:
+- Fetches 24h trading volume from both exchanges using candlestick/klines APIs
+- Displays volume in base currency and USD for each symbol
+- Color-coded output based on volume magnitude
+- Shows which symbols meet the $50M volume threshold
+- Includes rate limiting (1s for Lighter, 0.1s for Pacifica)
+
+**check_spreads.py**:
+- Fetches real-time prices from both exchanges
+- Calculates mid-price spread: `|(lighter_mid - pacifica_mid) / pacifica_mid| * 100`
+- Color-coded spreads: green < 0.1%, yellow 0.1-0.5%, red > 0.5%
+- Shows direction arrows (↑ = Lighter more expensive, ↓ = Pacifica more expensive)
+- Displays average absolute spread across all symbols
+- Includes timeout handling and rate limiting
 
 ### Testing
 
@@ -231,14 +265,16 @@ Docker configuration:
 
 ## Critical Safety Constraints
 
-1. **Leverage Synchronization**: Pacifica leverage is set before opening; Lighter leverage is per-order. Bot enforces consistent leverage (lines 769-804).
-2. **20x Hard Cap**: Never exceeds 20x leverage regardless of config or exchange limits (line 770: `MAX_ALLOWED_LEVERAGE = 20`)
-3. **2% Safety Buffer**: Base capital automatically reduced by 2% before leverage multiplication (line 807)
-4. **Position Size Limits**: Auto-reduces if insufficient margin, uses 95% of available (lines 816-824)
-5. **Delta-Neutral Validation**: State recovery checks positions are opposite and equal within 5% (line 463)
-6. **Single Position Limit**: Bot only manages one position at a time. Multiple positions trigger ERROR state (lines 390-393)
-7. **Stop-Loss Buffer**: Dynamic stop-loss leaves ~40% buffer before liquidation (lines 293-320). **Triggered by worst leg PnL** to protect against one-sided losses
-8. **Aggressive Order Crossing**: Uses 100 tick crossing by default for guaranteed fills (lighter_client.py:100)
+1. **Leverage Synchronization**: Pacifica leverage is set before opening; Lighter leverage is per-order. Bot enforces consistent leverage (lines ~1052-1091).
+2. **20x Hard Cap**: Never exceeds 20x leverage regardless of config or exchange limits (line ~1053: `MAX_ALLOWED_LEVERAGE = 20`)
+3. **2% Safety Buffer**: Base capital automatically reduced by 2% before leverage multiplication (line ~1097)
+4. **Position Size Limits**: Auto-reduces if insufficient margin, uses 95% of available (lines ~1102-1115)
+5. **Delta-Neutral Validation**: State recovery checks positions are opposite and equal within 5% (line ~508)
+6. **Single Position Limit**: Bot only manages one position at a time. Multiple positions trigger ERROR state (lines ~421-424)
+7. **Stop-Loss Buffer**: Dynamic stop-loss leaves ~40% buffer before liquidation (lines 316-329). **Triggered by worst leg PnL** to protect against one-sided losses
+8. **Volume Filter**: Only trades symbols with $50M+ 24h volume on Pacifica (lines 802-830). Re-checked before each cycle.
+9. **Spread Filter**: Excludes symbols with >0.15% spread between exchanges to minimize slippage (lines 831-891). Re-checked before each cycle.
+10. **Aggressive Order Crossing**: Uses 100 tick crossing by default for guaranteed fills (lighter_client.py:51-72)
 
 ## Status Display
 
@@ -318,25 +354,30 @@ Risk Management:
 ## Key Code Locations
 
 ### lighter_pacifica_hedge.py
-- **20x leverage hard cap**: Line 770
-- **Initial capital tracking**: Lines 664-678 (fetched at startup if missing)
-- **Long-term PnL display**: Lines 1053-1058
-- **Leverage setting**: Lines 769-804 (Pacifica only; Lighter is per-order)
-- **2% safety buffer application**: Lines 807-809
-- **Position sizing calculation**: Lines 807-824
-- **Stop-loss formula**: Lines 293-306
-- **Stop-loss check and trigger**: Lines 1127-1131 (calls close_position if triggered)
-- **Worst leg PnL calculation**: Lines 1080-1104
-- **State recovery**: Lines 367-516
-- **Symbol filtering**: Lines 557-579, 604, 633
-- **Market cache initialization**: Lines 585-604
-- **Quantity synchronization**: Lines 866-875
-- **Position opening**: Lines 839-941
-- **Position monitoring**: Lines 943-1140
-- **Position closing**: Lines 1142-1276
-- **Status display (consolidated)**: Lines 1022-1125
-- **Risk management display**: Lines 1095-1120
-- **Config parameter migration**: Lines 134-135
+- **20x leverage hard cap**: Line ~1053
+- **Initial capital tracking**: Lines ~927-940 (fetched at startup if missing)
+- **Long-term PnL display**: Lines ~1362-1367
+- **Leverage setting**: Lines ~1052-1091 (Pacifica only; Lighter is per-order)
+- **2% safety buffer application**: Lines ~1097-1099
+- **Position sizing calculation**: Lines ~1097-1115
+- **Stop-loss formula**: Lines 316-329
+- **Stop-loss check and trigger**: Lines ~1436-1440 (calls close_position if triggered)
+- **Worst leg PnL calculation**: Lines ~1389-1413
+- **State recovery**: Lines 398-561
+- **Symbol filtering (3-stage)**: Lines 785-891
+  - Exchange availability filter: Lines 786-800
+  - Volume filter ($50M threshold): Lines 802-830
+  - Spread filter (0.15% max): Lines 831-891
+- **Periodic filtering in cycles**: Lines 1014-1028 (re-runs filtering before each cycle)
+- **Market cache initialization**: Lines 897-920
+- **Volume fetching method**: Lines 731-783
+- **Quantity synchronization**: Lines ~1164-1172
+- **Position opening**: Lines ~1131-1249
+- **Position monitoring**: Lines ~1251-1451
+- **Position closing**: Lines ~1453-1588
+- **Status display (consolidated)**: Lines ~1331-1434
+- **Risk management display**: Lines ~1404-1429
+- **Config parameter migration**: Lines 146-148
 
 ### lighter_client.py
 - **Tick rounding helpers**: Lines 24-72
@@ -361,7 +402,7 @@ python emergency_close.py --force  # No confirmation
 
 **If bot crashes during OPENING/CLOSING**:
 1. Run `python emergency_close.py --dry-run` to see open positions
-2. Run `python emergency_close.py` to close them (requires 'YES' confirmation)
+2. Run `python emergency_close.py` to close them (press Enter to confirm)
 3. Reset state: Edit `bot_state_lighter_pacifica.json` to set `"state": "IDLE"` and `"current_position": null`
 4. Restart bot
 
@@ -375,12 +416,18 @@ python emergency_close.py --force  # No confirmation
 
 - Log file resets on every script start (mode='w' at line 68)
 - Cycle counter persists across restarts via state file
-- Bot exits if no common symbols found between exchanges (lines 574-576)
-- All timestamps use UTC with proper timezone awareness (lines 914, 959-964)
-- PnL calculation compares entry balance to current balance after closing (lines 1246-1266)
+- Bot exits if no symbols meet all filtering criteria (exchange availability, volume, spread)
+- **Volume & Spread Filtering**: Applied at startup and re-checked before each cycle (lines 1014-1028)
+  - Volume threshold: $50M 24h on Pacifica
+  - Spread threshold: 0.15% absolute difference
+  - Symbols dynamically added/removed based on current market conditions
+- All timestamps use UTC with proper timezone awareness
+- PnL calculation compares entry balance to current balance after closing (lines ~1558-1575)
 - Pacifica DOES support leverage setting via API (`/api/v1/account/leverage` endpoint)
 - Lighter leverage is set per-order, not account-wide
 - Old config files with `notional_per_position` automatically upgrade to `base_capital_allocation`
 - Market cache is built at startup and required for all Lighter operations
 - Default state file name: `bot_state_lighter_pacifica.json`
 - Aggressive order crossing (100 ticks) ensures fills but may have higher slippage
+- Utility scripts (`check_24h_volume.py`, `check_spreads.py`) help preview market conditions before running bot
+- All logging from websockets, lighter_client, and third-party libraries set to WARNING level to reduce noise

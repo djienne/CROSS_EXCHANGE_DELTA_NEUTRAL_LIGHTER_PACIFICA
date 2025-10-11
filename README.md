@@ -109,7 +109,9 @@ docker-compose build && docker-compose up -d
 - ✅ **Leverage Synchronization**: Both exchanges use identical leverage
 - ✅ **Dynamic Stop-Loss**: Tighter stops at higher leverage (~60% capital loss trigger), **triggered by worst leg PnL** to protect against one-sided losses
 - ✅ **2% Safety Buffer**: Automatic reduction of base capital allocation
-- ✅ **Symbol Filtering**: Only trades symbols available on both exchanges
+- ✅ **Symbol Filtering**: Only trades symbols available on both exchanges with sufficient liquidity
+- ✅ **Volume Filtering**: Automatically filters symbols with less than $50M 24h trading volume on Pacifica (checked at startup and before each cycle)
+- ✅ **Spread Filtering**: Excludes symbols with spreads exceeding 0.15% between exchanges to minimize slippage (checked at startup and before each cycle)
 - ✅ **State Recovery**: Automatically recovers position state after restart and triggers emergency close if mismatches are detected
 - ✅ **Quantity Precision**: Uses coarser step size to ensure identical quantities
 - ✅ **Long-term PnL Tracking**: Tracks initial capital and displays cumulative performance across all cycles
@@ -185,6 +187,26 @@ python emergency_close.py --dry-run
 
 The script scans symbols from `bot_config.json` and displays all open positions with PnL. In interactive mode, simply press **Enter** to confirm closing (or Ctrl+C to cancel).
 
+## 📊 Utility Scripts
+
+Check market conditions before running the bot:
+
+```bash
+# Check 24h trading volume for all symbols
+python check_24h_volume.py
+
+# Check mid-price spreads between exchanges
+python check_spreads.py
+
+# Use custom config file
+python check_24h_volume.py --config custom_config.json
+python check_spreads.py --config custom_config.json
+```
+
+**check_24h_volume.py**: Displays 24h trading volume in both base currency and USD for all symbols on both exchanges. Helps identify liquid markets.
+
+**check_spreads.py**: Shows bid/ask/mid prices and spread percentages between Lighter and Pacifica. Helps identify symbols with tight spreads for optimal trading.
+
 ## 🧪 Testing
 
 Test your setup with the included test suite:
@@ -217,6 +239,8 @@ See `test/README_TESTS.md` for detailed documentation on all available tests.
 
 - `lighter_pacifica_hedge.py` - Main bot
 - `emergency_close.py` - Emergency position closer
+- `check_24h_volume.py` - Volume checker utility
+- `check_spreads.py` - Spread checker utility
 - `lighter_client.py` - Lighter exchange wrapper
 - `pacifica_client.py` - Pacifica exchange client
 - `bot_config.json` - Configuration
@@ -227,6 +251,9 @@ See `test/README_TESTS.md` for detailed documentation on all available tests.
 
 - **Single Position**: Bot manages one position at a time
 - **Symbol Filtering**: Symbols not on both exchanges are automatically ignored
+- **Volume & Spread Filtering**: Checked at startup and before each cycle to ensure liquid, efficient markets
+  - Minimum $50M 24h volume on Pacifica
+  - Maximum 0.15% spread between exchanges
 - **Cycle Tracking**: Cycle number persists across restarts
 - **Initial Capital**: Captured at first run and used for long-term PnL calculation
 - **Monitoring Frequency**: Position checked every 60 seconds by default (`check_interval_seconds`)

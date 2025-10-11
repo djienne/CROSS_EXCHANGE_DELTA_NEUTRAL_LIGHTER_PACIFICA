@@ -26,6 +26,7 @@ import os
 import signal
 import sys
 import time
+import requests
 from datetime import datetime, timedelta, UTC
 from decimal import Decimal, ROUND_DOWN
 from typing import Optional, Dict, List, Tuple
@@ -49,6 +50,7 @@ from lighter_client import (
     lighter_place_aggressive_order,
     lighter_close_position
 )
+from pacifica_sdk.common.constants import REST_URL
 
 # ANSI color codes for console output
 class Colors:
@@ -86,8 +88,13 @@ logger = logging.getLogger(__name__)
 
 # Silence noisy third-party loggers
 logging.getLogger('websockets').setLevel(logging.WARNING)
+logging.getLogger('websockets.client').setLevel(logging.WARNING)
+logging.getLogger('websockets.server').setLevel(logging.WARNING)
+logging.getLogger('websockets.protocol').setLevel(logging.WARNING)
 logging.getLogger('asyncio').setLevel(logging.WARNING)
 logging.getLogger('lighter').setLevel(logging.WARNING)
+logging.getLogger('urllib3').setLevel(logging.WARNING)
+logging.getLogger('aiohttp').setLevel(logging.WARNING)
 
 # ==================== State Management ====================
 
@@ -228,7 +235,7 @@ async def fetch_funding_rates(lighter_api_client: lighter.ApiClient, pacifica_cl
     funding_api = lighter.FundingApi(lighter_api_client)
 
     results = []
-    for symbol in symbols:
+    for i, symbol in enumerate(symbols):
         try:
             # Get Lighter market ID
             if symbol not in market_cache:
@@ -239,7 +246,13 @@ async def fetch_funding_rates(lighter_api_client: lighter.ApiClient, pacifica_cl
 
             # Get funding rates
             pacifica_rate_hourly = pacifica_client.get_funding_rate(symbol)
+            await asyncio.sleep(0.1)  # Rate limit for Pacifica
+
             lighter_rate_raw = await get_lighter_funding_rate(funding_api, lighter_market_id)
+
+            # Rate limit: 1 second delay between Lighter API calls (except for last symbol)
+            if i < len(symbols) - 1:
+                await asyncio.sleep(1.0)
 
             if lighter_rate_raw is None:
                 logger.info(f"No funding rate for {symbol} on Lighter.")
@@ -350,8 +363,16 @@ async def scan_symbols_for_positions(lighter_api_client: lighter.ApiClient, paci
 
             lighter_market_id = market_cache[symbol]
 
+            # Check Pacifica position first (faster)
             pacifica_pos = await pacifica_client.get_position(symbol)
+            await asyncio.sleep(0.1)  # Rate limit for Pacifica
+
+            # Check Lighter position
             lighter_size = await get_lighter_open_size(account_api, account_index, lighter_market_id, symbol=symbol)
+
+            # Rate limit: 1 second delay between Lighter API calls (except for last symbol)
+            if i < len(symbols):
+                await asyncio.sleep(1.0)
 
             pacifica_size = pacifica_pos['qty'] if pacifica_pos else 0.0
 
@@ -707,8 +728,62 @@ class RotationBot:
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
 
-    def _filter_tradable_symbols(self):
-        """Filters the config's symbols to only include those present on both exchanges."""
+    async def _get_pacifica_24h_volume_usd(self, symbol: str) -> Optional[float]:
+        """
+        Get 24-hour trading volume in USD for a symbol on Pacifica.
+
+        Returns:
+            USD volume or None if failed
+        """
+        try:
+            # Calculate timestamps (24 hours ago to now)
+            end_time = int(time.time() * 1000)  # milliseconds
+            start_time = end_time - (24 * 60 * 60 * 1000)  # 24 hours ago
+
+            # Fetch klines
+            url = f"{REST_URL}/kline"
+            params = {
+                'symbol': symbol,
+                'interval': '1h',  # 1 hour candles
+                'start_time': start_time,
+                'end_time': end_time
+            }
+
+            response = requests.get(url, params=params, timeout=10)
+            response.raise_for_status()
+            data = response.json()
+
+            if not data.get('success'):
+                return None
+
+            klines = data.get('data', [])
+
+            if not klines:
+                return None
+
+            # Sum volume from all klines (volume in base tokens)
+            total_volume = sum(float(kline.get('v', 0)) for kline in klines)
+
+            # Get latest close price from most recent kline for USD conversion
+            latest_price = float(klines[-1].get('c', 0)) if klines else 0.0
+
+            if latest_price <= 0:
+                return None
+
+            # Calculate USD volume
+            usd_volume = total_volume * latest_price
+
+            # Rate limit: 0.1 second delay for Pacifica API
+            await asyncio.sleep(0.1)
+
+            return usd_volume
+
+        except Exception as e:
+            logger.debug(f"Could not fetch 24h volume for {symbol}: {e}")
+            return None
+
+    async def _filter_tradable_symbols(self):
+        """Filters the config's symbols to only include those present on both exchanges and with sufficient volume."""
         logger.info("Filtering symbols to find those tradable on both exchanges...")
 
         # Get Lighter symbols from market cache (already populated)
@@ -724,12 +799,96 @@ class RotationBot:
             removed_symbols = set(original_symbols) - set(filtered_symbols)
             logger.warning(f"Removed symbols not available on both exchanges: {', '.join(removed_symbols)}")
 
-        if not filtered_symbols:
-            logger.error("No common symbols found between Lighter and Pacifica from the configured list. The bot cannot proceed.")
+        # Filter by volume (minimum $50M on Pacifica)
+        MIN_VOLUME_USD = 50_000_000  # $50 million
+        logger.info(f"Checking 24h trading volume on Pacifica (minimum: ${MIN_VOLUME_USD:,.0f})...")
+
+        volume_filtered_symbols = []
+        low_volume_symbols = []
+
+        for symbol in filtered_symbols:
+            volume_usd = await self._get_pacifica_24h_volume_usd(symbol)
+
+            if volume_usd is None:
+                logger.warning(f"Could not fetch volume for {symbol}, excluding from trading")
+                low_volume_symbols.append(f"{symbol} (N/A)")
+                continue
+
+            if volume_usd >= MIN_VOLUME_USD:
+                volume_filtered_symbols.append(symbol)
+                logger.info(f"  {Colors.GREEN}✓{Colors.RESET} {symbol}: ${volume_usd:,.0f} (sufficient volume)")
+            else:
+                low_volume_symbols.append(f"{symbol} (${volume_usd:,.0f})")
+                logger.warning(f"  {Colors.YELLOW}✗{Colors.RESET} {symbol}: ${volume_usd:,.0f} (below threshold)")
+
+        if low_volume_symbols:
+            logger.warning(f"Removed {len(low_volume_symbols)} symbols due to low volume: {', '.join(low_volume_symbols)}")
+
+        if not volume_filtered_symbols:
+            logger.error("No symbols meet the volume requirements. The bot cannot proceed.")
             sys.exit(1)
 
-        logger.info(f"Final list of monitored symbols: {', '.join(filtered_symbols)}")
-        self.config.symbols_to_monitor = filtered_symbols
+        # Filter by spread (maximum 0.15% absolute difference between exchanges)
+        MAX_SPREAD_PERCENT = 0.15
+        logger.info(f"Checking spreads between exchanges (maximum: {MAX_SPREAD_PERCENT}%)...")
+
+        spread_filtered_symbols = []
+        high_spread_symbols = []
+
+        lighter_api_client = lighter.ApiClient(configuration=lighter.Configuration(host=self.env["LIGHTER_BASE_URL"]))
+        try:
+            order_api = lighter.OrderApi(lighter_api_client)
+
+            for symbol in volume_filtered_symbols:
+                try:
+                    # Get market details
+                    if symbol not in self.market_cache:
+                        logger.warning(f"No market ID for {symbol}, skipping spread check")
+                        high_spread_symbols.append(f"{symbol} (N/A)")
+                        continue
+
+                    market_id = self.market_cache[symbol]
+
+                    # Get Lighter prices
+                    lighter_bid, lighter_ask = await get_lighter_best_bid_ask(order_api, symbol, market_id)
+                    await asyncio.sleep(1.0)  # Rate limit
+
+                    # Get Pacifica price
+                    pacifica_price = await self.pacifica_client.get_mark_price(symbol)
+                    await asyncio.sleep(0.1)  # Rate limit
+
+                    if not lighter_bid or not lighter_ask or pacifica_price <= 0:
+                        logger.warning(f"Could not fetch prices for {symbol}, excluding from trading")
+                        high_spread_symbols.append(f"{symbol} (N/A)")
+                        continue
+
+                    # Calculate spread
+                    lighter_mid = (lighter_bid + lighter_ask) / 2
+                    spread_pct = abs((lighter_mid - pacifica_price) / pacifica_price) * 100
+
+                    if spread_pct <= MAX_SPREAD_PERCENT:
+                        spread_filtered_symbols.append(symbol)
+                        logger.info(f"  {Colors.GREEN}✓{Colors.RESET} {symbol}: {spread_pct:.3f}% spread (acceptable)")
+                    else:
+                        high_spread_symbols.append(f"{symbol} ({spread_pct:.3f}%)")
+                        logger.warning(f"  {Colors.YELLOW}✗{Colors.RESET} {symbol}: {spread_pct:.3f}% spread (too high)")
+
+                except Exception as e:
+                    logger.warning(f"Error checking spread for {symbol}: {e}")
+                    high_spread_symbols.append(f"{symbol} (error)")
+
+        finally:
+            await lighter_api_client.close()
+
+        if high_spread_symbols:
+            logger.warning(f"Removed {len(high_spread_symbols)} symbols due to high spread: {', '.join(high_spread_symbols)}")
+
+        if not spread_filtered_symbols:
+            logger.error("No symbols meet both volume and spread requirements. The bot cannot proceed.")
+            sys.exit(1)
+
+        logger.info(f"{Colors.GREEN}Final list of monitored symbols ({len(spread_filtered_symbols)}): {', '.join(spread_filtered_symbols)}{Colors.RESET}")
+        self.config.symbols_to_monitor = spread_filtered_symbols
 
     def _signal_handler(self, signum, frame):
         logger.info(f"\n{Colors.YELLOW}Shutdown signal received. Stopping gracefully...{Colors.RESET}")
@@ -741,11 +900,15 @@ class RotationBot:
         lighter_api_client = lighter.ApiClient(configuration=lighter.Configuration(host=self.env["LIGHTER_BASE_URL"]))
         try:
             order_api = lighter.OrderApi(lighter_api_client)
-            for symbol in self.config.symbols_to_monitor:
+            for i, symbol in enumerate(self.config.symbols_to_monitor):
                 try:
                     market_id, price_tick, amount_tick = await get_lighter_market_details(order_api, symbol)
                     self.market_cache[symbol] = market_id
                     logger.debug(f"Cached {symbol}: market_id={market_id}")
+
+                    # Rate limit: 1 second delay between Lighter API calls (except for last symbol)
+                    if i < len(self.config.symbols_to_monitor) - 1:
+                        await asyncio.sleep(1.0)
                 except Exception as e:
                     logger.warning(f"Could not get market details for {symbol} on Lighter: {e}")
         finally:
@@ -753,8 +916,8 @@ class RotationBot:
 
         logger.info(f"Market cache initialized: {len(self.market_cache)} symbols")
 
-        # Filter symbols after cache is built
-        self._filter_tradable_symbols()
+        # Filter symbols after cache is built (async operation)
+        await self._filter_tradable_symbols()
 
     def reload_config(self):
         """Reload configuration from file."""
@@ -782,8 +945,13 @@ class RotationBot:
 
             self.config = new_config
 
-            # Re-filter symbols to ensure they're available on both exchanges
-            self._filter_tradable_symbols()
+            # Note: Volume filtering is skipped during config reload to avoid delays
+            # Volume filtering only happens at startup
+            original_symbols = self.config.symbols_to_monitor
+            lighter_symbols = set(self.market_cache.keys())
+            pacifica_symbols = set(self.pacifica_client._market_info.keys())
+            common_symbols = lighter_symbols.intersection(pacifica_symbols)
+            self.config.symbols_to_monitor = [s for s in original_symbols if s in common_symbols]
 
             if changes:
                 logger.info(f"{Colors.GREEN}Config reloaded successfully. Changes detected:{Colors.RESET}")
@@ -901,6 +1069,22 @@ class RotationBot:
         self.state_mgr.set_state(BotState.ANALYZING)
 
         self.reload_config()
+
+        # Re-check volume filtering to ensure we're only trading liquid markets
+        logger.info(f"{Colors.CYAN}Checking volume thresholds for all symbols...{Colors.RESET}")
+        symbols_before = set(self.config.symbols_to_monitor)
+        await self._filter_tradable_symbols()
+        symbols_after = set(self.config.symbols_to_monitor)
+
+        # Log any changes
+        added = symbols_after - symbols_before
+        removed = symbols_before - symbols_after
+        if added:
+            logger.info(f"{Colors.GREEN}Added symbols (now meet volume threshold): {', '.join(added)}{Colors.RESET}")
+        if removed:
+            logger.warning(f"{Colors.YELLOW}Removed symbols (below volume threshold): {', '.join(removed)}{Colors.RESET}")
+        if not added and not removed:
+            logger.info(f"{Colors.GREEN}Symbol list unchanged ({len(symbols_after)} symbols){Colors.RESET}")
 
         logger.info("Analyzing funding rates for opportunities...")
 

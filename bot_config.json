@@ -6,14 +6,12 @@
     "SOL",
     "BNB",
     "ASTER",
-    "PAXG",
     "DOGE",
     "XRP",
     "LINK",
     "HYPE",
     "PUMP",
-    "FARTCOIN",
-    "XPL"
+    "FARTCOIN"
   ],
   "comment_leverage": "Target leverage for positions on both exchanges. Will be automatically reduced if it exceeds the maximum allowed leverage on either exchange or the hard cap of 20x. The bot will use the minimum of: configured value, Lighter max, Pacifica max, and 20x hard cap.",
   "leverage": 1,
