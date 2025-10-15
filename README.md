@@ -7,16 +7,13 @@ Can also be used to farm trading volume while limiting risk (refreshes positions
 - **Lighter**: Sign up at [lighter.xyz](https://lighter.xyz/)
 - **Pacifica**: Sign up at [app.pacifica.fi](https://app.pacifica.fi/) and use one of the following referral codes when registering (if one is already taken, try another):
   ```
-  BYVJRCM791XFCF5K
-  ENPVKJ1WAVYNV2Z0
-  6HR2WM4C0JQ7D39Q
   411J9J7CYNFZN3SX
   2K7D40A9H53M2TJT
   S1G3A2063Q7410BV
-  XH2V3VY9CQ7535CX
-  EK8NXX12VDKJJWNK
-  6NBS6TT7Y1SV2P53
-  E5ZYTD2FVXJA123W
+  5KH0XDRD8BDGTBCT
+  S1YHDS2GWAJTWJ4M
+  7AMVQKK66MP55E8T
+  7KB69JEC3BSA6GTR
   ```
 
 ## 📊 Strategy
@@ -277,6 +274,7 @@ See `test/README_TESTS.md` for detailed documentation on all available tests.
 ## 📜 License
 
 This bot is for educational and research purposes. Use at your own risk. Always test with small amounts first.
+
 
 
 
