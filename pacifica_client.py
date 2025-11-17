@@ -77,12 +77,18 @@ class PacificaClient:
                 if lot_size_dec <= 0:
                     lot_size_dec = Decimal('0.001')
 
+                # Use next_funding_rate (forward-looking TWAP estimate) instead of funding_rate (historical)
+                # This ensures we're comparing forward-looking rates from both exchanges
+                next_rate = market.get("next_funding_rate")
+                historical_rate = market.get("funding_rate", 0.0)
+                funding_rate = float(next_rate if next_rate is not None else historical_rate)
+
                 self._market_info[symbol] = {
                     "tick_size": float(tick_size_dec),
                     "lot_size": float(lot_size_dec),
                     "min_notional": float(market.get("min_notional", 10.0)),
                     "max_leverage": int(market.get("max_leverage", 20)),
-                    "funding_rate": float(market.get("funding_rate", 0.0))
+                    "funding_rate": funding_rate
                 }
 
                 # Store Decimal versions for precise rounding
