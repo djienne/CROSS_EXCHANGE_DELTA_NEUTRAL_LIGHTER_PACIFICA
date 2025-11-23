@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python test_hyperliquid_balance.py:*)",
+      "Bash(python test/test_hyperliquid_balance.py)",
+      "Bash(python:*)",
+      "Bash(dir logs)",
+      "Read(//c/Users/david/Desktop/freqtrade/CROSS_EXCHANGE_DELTA_NEUTRAL/**)",
+      "Bash(cat:*)",
+      "WebSearch",
+      "Bash(timeout 120 python check_spreads.py)",
+      "Bash(timeout 15 python check_24h_volume.py)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

@@ -1,0 +1,12 @@
+.env
+logs/
+__pycache__/
+*.pyc
+CLAUDE.md
+AGENTS.md
+bot_state_*.json
+.DS_Store
+.vscode/
+.idea/
+venv/
+*.log

@@ -1,0 +1,24 @@
+version: '3.8'
+networks:
+  default:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.12.16.0/22
+services:
+  hedge-bot:
+    build: .
+    container_name: lighter-pacifica-bot
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: '512M'
+    tty: true
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./:/app/
+    environment:
+      - PYTHONUNBUFFERED=1

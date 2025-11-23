@@ -1,0 +1,42 @@
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Git
+.git/
+.gitignore
+
+# Test files
+test/
+
+# Documentation
+*.md
+GEMINI.md
+
+# Logs (will be mounted as volume)
+logs/
+
+# State file (will be mounted as volume)
+bot_state_hl_pacifica.json
+
+# Environment file (will be passed via env_file in docker-compose)
+.env
+.env.example
+
+# OS
+.DS_Store
+Thumbs.db

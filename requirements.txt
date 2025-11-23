@@ -1,0 +1,37 @@
+# Exchange SDKs
+git+https://github.com/elliottech/lighter-python.git
+edgex-python-sdk
+
+# WebSocket and HTTP client dependencies
+websocket-client>=1.0.0
+websockets
+aiohttp
+requests>=2.25.0
+typing-extensions>=4.0.0
+
+# Environment configuration
+python-dotenv>=1.0.0
+
+# Crypto utilities (for Pacifica/Solana)
+solders
+base58
+
+# Data analysis (required for bot operations)
+numpy
+pandas
+scipy
+
+# Test dependencies
+pytest
+pytest-cov
+pytest-mock
+pytest-asyncio
+
+# Code quality tools
+flake8
+black
+mypy
+
+# Test utilities
+freezegun
+responses
