@@ -56,7 +56,7 @@ Edit `bot_config.json`:
 ```json
 {
   "symbols_to_monitor": ["BTC", "ETH", "SOL", "ASTER", ...],
-  "leverage": 3,
+  "leverage": 1,
   "base_capital_allocation": 100.0,
   "hold_duration_hours": 12.0,
   "min_net_apr_threshold": 5.0
@@ -65,7 +65,7 @@ Edit `bot_config.json`:
 
 **Key Parameters**:
 - `base_capital_allocation`: Base capital in USD (actual position = base × leverage × 0.98 buffer)
-- `leverage`: Target leverage (auto-capped at 20x, reduced if exchange limits are lower)
+- `leverage`: **LOCKED AT 1X** (Hardcoded in bot logic for safety)
 - `hold_duration_hours`: How long to hold each position
 - `min_net_apr_threshold`: Minimum funding spread to open position
 
@@ -105,7 +105,7 @@ docker-compose build && docker-compose up -d
 
 ## 🛡️ Safety Features
 
-- ✅ **20x Leverage Hard Cap**: Never exceeds 20x regardless of config
+- ✅ **1X Leverage Lock**: Strictly enforces 1X leverage for maximum safety
 - ✅ **Leverage Synchronization**: Both exchanges use identical leverage
 - ✅ **Dynamic Stop-Loss**: Tighter stops at higher leverage (~60% capital loss trigger), **triggered by worst leg PnL** to protect against one-sided losses
 - ✅ **2% Safety Buffer**: Automatic reduction of base capital allocation
@@ -130,9 +130,9 @@ With `base_capital_allocation: 100`:
 | Leverage | Safety Buffer | Position Size per Exchange |
 |----------|---------------|----------------------------|
 | 1x       | $98           | $98                        |
-| 3x       | $98           | $294                       |
-| 5x       | $98           | $490                       |
-| 10x      | $98           | $980                       |
+| 3x       | N/A           | (Locked at 1X)             |
+| 5x       | N/A           | (Locked at 1X)             |
+| 10x      | N/A           | (Locked at 1X)             |
 
 Position size is further reduced if insufficient margin available (uses 95% of max available).
 

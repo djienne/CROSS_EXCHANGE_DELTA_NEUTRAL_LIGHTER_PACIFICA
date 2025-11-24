@@ -285,8 +285,8 @@ async def get_lighter_open_size(account_api, account_index: int, market_id: int,
 
     except Exception as e:
         logger.error(f"Lighter: Failed to get account position size due to an error: {e}", exc_info=True)
-        # Fallback to 0 if API fails to avoid preventing close attempts
-        return 0.0
+        # CRITICAL: Raise exception to prevent false positive liquidation detection
+        raise RuntimeError(f"Failed to get Lighter position size: {e}") from e
 
 
 async def get_lighter_position_pnl(account_api, account_index: int, market_id: int) -> float:
@@ -319,7 +319,7 @@ async def get_lighter_position_pnl(account_api, account_index: int, market_id: i
 
     except Exception as e:
         logger.error(f"Lighter: Failed to get PnL: {e}")
-        return 0.0
+        raise RuntimeError(f"Failed to get Lighter PnL: {e}") from e
 
 
 async def get_lighter_position_details(

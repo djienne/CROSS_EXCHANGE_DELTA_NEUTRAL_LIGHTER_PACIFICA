@@ -114,7 +114,7 @@ class BotState:
 class BotConfig:
     """Bot configuration parameters."""
     symbols_to_monitor: List[str]
-    leverage: int = 3
+    leverage: int = 1
     base_capital_allocation: float = 100.0
     hold_duration_hours: float = 8.0
     wait_between_cycles_minutes: float = 5.0
@@ -135,7 +135,7 @@ class BotConfig:
             # Provide defaults for any missing fields
             defaults = {
                 'symbols_to_monitor': ["BTC", "ETH", "SOL"],
-                'leverage': 3,
+                'leverage': 1,
                 'base_capital_allocation': 100.0,
                 'hold_duration_hours': 8.0,
                 'wait_between_cycles_minutes': 5.0,
@@ -1133,28 +1133,9 @@ class RotationBot:
                 symbol = best_opportunity['symbol']
                 lighter_market_id = best_opportunity['lighter_market_id']
 
-                # Determine and set the safe, final leverage
-                MAX_ALLOWED_LEVERAGE = 20  # Hard cap for safety
-
-                # Lighter doesn't expose max leverage via API, assume 20x max
-                lighter_max_leverage = 20
-                pacifica_max_leverage = self.pacifica_client.get_max_leverage(symbol)
-
-                # Calculate target leverage (minimum of config, exchange limits, and hard cap)
-                final_leverage = min(self.config.leverage, lighter_max_leverage, pacifica_max_leverage, MAX_ALLOWED_LEVERAGE)
-
-                # Log leverage information
-                if final_leverage < self.config.leverage:
-                    reasons = []
-                    if self.config.leverage > MAX_ALLOWED_LEVERAGE:
-                        reasons.append(f"hard cap: {MAX_ALLOWED_LEVERAGE}x")
-                    if self.config.leverage > lighter_max_leverage:
-                        reasons.append(f"Lighter max: {lighter_max_leverage}x")
-                    if self.config.leverage > pacifica_max_leverage:
-                        reasons.append(f"Pacifica max: {pacifica_max_leverage}x")
-                    logger.warning(f"Leverage adjusted to {final_leverage}x due to limits ({', '.join(reasons)}). Config: {self.config.leverage}x.")
-                else:
-                    logger.info(f"Using leverage: {final_leverage}x for both exchanges (Lighter max: {lighter_max_leverage}x, Pacifica max: {pacifica_max_leverage}x, Hard cap: {MAX_ALLOWED_LEVERAGE}x)")
+                # FORCE LEVERAGE TO 1X
+                final_leverage = 1
+                logger.info(f"Leverage is LOCKED at {final_leverage}x for safety.")
 
                 # Set leverage on Pacifica (Lighter leverage is set per-order)
                 logger.info(f"Setting leverage to {final_leverage}x on Pacifica...")
@@ -1551,8 +1532,15 @@ class RotationBot:
             finally:
                 await lighter_api_client.close()
 
+        except (BalanceFetchError, RuntimeError, ValueError) as e:
+            logger.warning(f"Temporary error gathering position info: {e}")
+            # Do NOT trigger emergency close for temporary API errors
+            # Just skip this check cycle
+            return
+
         except Exception as e:
-            logger.error(f"Error gathering position info: {e}")
+            logger.error(f"Unexpected error gathering position info: {e}", exc_info=True)
+            # Only trigger emergency close for truly unexpected errors
             await self.emergency_close_all(f"monitor_position failure for {pos.get('symbol', 'unknown')}")
             self.state_mgr.set_state(BotState.ERROR)
 
