@@ -4,7 +4,7 @@ Automated delta-neutral bot that captures funding rate spreads between Lighter a
 Can also be used to farm trading volume while limiting risk (refreshes positions every `hold_duration_hours=12` hours by default, but can be changed).
 
 **💰 Support this project**:
-- **Lighter**: Sign up at [lighter.xyz](https://lighter.xyz/)
+- **Lighter**: Affiliate link to Support this project : ⚡Trade on Lighter – Spot & Perpetuals, 100% decentralized, no KYC, and ZERO fees – [https://app.lighter.xyz/?referral=FREQTRADE](https://app.lighter.xyz/?referral=FREQTRADE) (I’ll give you 100% kickback with this link)
 - **Pacifica**: Sign up at [app.pacifica.fi](https://app.pacifica.fi/) and use one of the following referral codes when registering (if one is already taken, try another):
   ```
   BYVJRCM791XFCF5K
